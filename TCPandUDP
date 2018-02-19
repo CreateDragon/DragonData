@@ -1,0 +1,184 @@
+SOCKET编程，里面的连接结构以及代码解析。现在的网络编程几乎都是用的socket,无论文件传输，还是实时通信等，基本都是TCP,UDP及其他协议。
+
+1.进程之间通讯。TCP/IP协议的应用程序通常采用应用编程接口：UNIX  BSD的套接字（socket）和UNIX System V的TLI（已经被淘汰），来实现网络进程之间的通
+信。唯一标识主机进程的就是socket套接字(IP+端口号)。socket直接屏蔽各个协议的细节，让程序员无需关心协议本身，只需了解协议原理，知道函数的使用，而无需
+重写协议。
+2.Unix/Linux的基本哲学就是“一切皆文件”。都可以用“打开open –> 读写write/read –> 关闭close”模式来操作。无论文件，流，还是进程（内核驱动的编写，无
+非就是对该特殊文件（进程）read函数的实现）。所以在这里，socket也是这一类特殊的文件，也是“打开open –> 读写write/read –> 关闭close”模式。
+3.socket基本驱动函数有哪些？
+    3.1、socket()函数
+    3.2、bind()函数
+    3.3、listen()、connect()函数
+    3.4、accept()函数
+    3.5、read()、write()函数等
+    3.6、close()函数
+
+函数分析：
+  1.socket(AF_INET,SOCK_STREAM,0)函数
+   <sys/socket.h>，创建一个套接字。AF_INET(目前只支持ARPA Internet地址格式)。TCP(SOCK_STREAM)，UDP(SOCK_DGRAM)还有一些其他。协议（不想
+   指定则置0,还有IPPROTO_TCP,IPPROTO_UDP等）
+  2.setsockopt(listenfd,SOL_SOCKET,SO_REUSEADDR,&on,sizeof(on))函数 
+    用于任意类型、任意状态套接口的设置选项值。套接字，定义的层次（目前仅支持SOL_SOCKET和IPPROTO_TCP层次），设置的选项，指向存放选项值的缓冲区，
+    缓冲区长度
+  3.bind(listenfd,(struct sockaddr*)&servaddr,len); //本地地址与一套接口捆绑，
+  4.listen(listenfd,SOMAXCONN);  //<sys/types.h>，一个已绑定未被连接的套接字描述符，连接请求队列
+  5.accept(listenfd,(struct sockaddr*)&peeraddr,&len); //在一个套接口接受的一个连接
+  6.connect(fd, (struct sockaddr *) &servaddr, len);  //<sys/socket.h>，标识一个未连接socket，指向要连接套接字的sockaddr结构体的指针，
+    字节长度.
+TCP_Server.cpp
+
+#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>     
+#include <sys/types.h>   
+#include <sys/socket.h>        //socket头文件里
+#include <netinet/in.h>        
+#include <arpa/inet.h>         //arpa逆解析协议
+
+#define MAXLINE 1023
+#define ERR_EXIT(m)\      
+      do\
+      {\
+            perror(m);\
+            exit(EXIT_FAILURE);\
+      }while(0)
+
+using namespace std;
+
+static void do_serviece(int peerfd)
+{
+    char recvbuf[MAXLINE+1];
+    memset(recvbuf,0x00,sizeof recvbuf);      //首地址，内容，块大小（通常用于为新申请的内存做初始化工作）
+
+    while(1){
+        int nread = read(peerfd,recvbuf,MAXLINE);  //<unistd.h>中，把参数peerfd所指的文件传送MAXbyte个字节到buf指针所指的内存中，并返回实际的字节数
+        if(nread < 0){
+            ERR_EXIT("read");     //出错，返回-1
+        }
+        if(nread == 0){
+            fprintf(stdout,"peer close\n");   
+            break;
+        }
+        fprintf(stdout, "receive: %s", recvbuf);    //输出内容
+        int nwrite = write(peerfd,recvbuf,nread);   //fd文件描述符，buf指定的缓冲区，nread要写入文件的字节数。成功则返回字节数否则为-1
+        if(nwrite<0){
+            ERR_EXIT("write");
+        }
+        memset(recvbuf,0x00,sizeof recvbuf);     //内存清空
+    } 
+}
+
+int main(int argc, char **argv)
+{
+    int listenfd = socket(AF_INET,SOCK_STREAM,0);  
+    //<sys/socket.h>，创建一个套接字。AF_INET(目前只支持ARPA Internet地址格式)，TCP(SOCK_STREAM)UDP(SOCK_DGRAM)还有一些其他，协议（不想指定置0,还有IPPROTO_TCP,IPPROTO_UDP等）
+    if(listenfd<0){
+        ERR_EXIT("socket");
+    }
+    int on = 1;
+    if(setsockopt(listenfd,SOL_SOCKET,SO_REUSEADDR,&on,sizeof(on))<0) 
+    //用于任意类型、任意状态套接口的设置选项值。套接字，定义的层次（目前仅支持SOL_SOCKET和IPPROTO_TCP层次），设置的选项，指向存放选项值的缓冲区，缓冲区长度
+    	ERR_EXIT("setsockopt");
+    struct sockaddr_in servaddr;  //<netinet/in.h>，
+    servaddr.sin_family = AF_INET;//协议族，在socket编程中只能是AF_INET
+    servaddr.sin_port = htons(8989);//端口号
+    servaddr.sin_addr.s_addr = htonl(INADDR_ANY);//IP地址
+    socklen_t len = sizeof servaddr;
+    int ret = bind(listenfd,(struct sockaddr*)&servaddr,len); //本地地址与一套接口捆绑，
+    if(ret < 0){
+        ERR_EXIT("bind");
+    }
+    ret = listen(listenfd,SOMAXCONN);  //<sys/types.h>，一个已绑定未被连接的套接字描述符，连接请求队列
+    if(ret < 0){
+        ERR_EXIT("bind");
+    }
+
+    ret = listen(listenfd,SOMAXCONN);
+    if(ret < 0){
+       ERR_EXIT("listen"); 
+    }
+
+    struct sockaddr_in peeraddr;
+    bzero(&peeraddr,sizeof peeraddr);  //<string.h>，置字节字符串前n个字节为0且包括‘\0’
+    len = sizeof peeraddr;
+    int peerfd = accept(listenfd,(struct sockaddr*)&peeraddr,&len); //在一个套接口接受的一个连接
+    if(peerfd < 0){
+         ERR_EXIT("accept");
+    }
+    fprintf(stdout,"IP=%s,port=%d\n",inet_ntoa(peeraddr.sin_addr),ntohs(peeraddr.sin_port));
+    //返回点分十进制的字符串在静态内存中的指针。一个16位数由网络字节顺序转换为主机字节顺序
+    
+    do_serviece(peerfd);
+
+    close(peerfd);
+    close(listenfd);
+
+    return 0;
+}
+
+
+TCP_Client.cpp
+
+#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+
+#define ERR_EXIT(m) \
+	do\
+	{\
+		perror(m);\
+		exit(EXIT_FAILURE);\
+	}while(0)
+
+#define MAXLINE 1023
+
+static void do_service(int fd) {
+	char recvbuf[MAXLINE + 1];
+	char sendbuf[MAXLINE + 1];
+	memset(recvbuf, 0x00, sizeof recvbuf);
+	memset(sendbuf, 0x00, sizeof sendbuf);    //接收，发送2个缓冲区
+	while (fgets(sendbuf, MAXLINE, stdin) != NULL) {     //从文件结构体指针stream中读取数据，每次读取一行，存入sendbuf中。
+		int nwrite = write(fd, sendbuf, strlen(sendbuf)); //fd文件描述符，buf指定的缓冲区，nread要写入文件的字节数。成功则返回字节数否则为-1
+		if (nwrite < 0) {
+			ERR_EXIT("write");
+	}
+	int nread = read(fd, recvbuf, MAXLINE);
+	if (nread < 0) {
+		ERR_EXIT("read");
+	}
+	if (nread == 0) {
+		fprintf(stdout, "peer close\n");
+		break;
+	}
+	fprintf(stdout, "receive: %s", recvbuf);
+	memset(recvbuf, 0x00, sizeof recvbuf);
+	memset(sendbuf, 0x00, sizeof sendbuf);  //2个缓冲区清0
+	}
+}
+
+int main(int argc, char **argv) {
+	int fd = socket(AF_INET, SOCK_STREAM, 0);
+	if (fd < 0) {
+		ERR_EXIT("socket");
+	}
+	struct sockaddr_in servaddr;
+	servaddr.sin_family = AF_INET;
+	servaddr.sin_port = htons(8989);
+	servaddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+	socklen_t len = sizeof servaddr;
+	int ret = connect(fd, (struct sockaddr *) &servaddr, len);  //<sys/socket.h>，标识一个未连接socket，指向要连接套接字的sockaddr结构体的指针，字节长度
+	if (ret < 0) {
+		ERR_EXIT("connect");
+	}
+	do_service(fd);
+	close(fd);
+	return 0;
+}
