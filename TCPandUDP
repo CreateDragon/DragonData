@@ -16,8 +16,7 @@ SOCKET编程，里面的连接结构以及代码解析。现在的网络编程�
 
 函数分析：
   1.socket(AF_INET,SOCK_STREAM,0)函数
-   <sys/socket.h>，创建一个套接字。AF_INET(目前只支持ARPA Internet地址格式)。TCP(SOCK_STREAM)，UDP(SOCK_DGRAM)还有一些其他。协议（不想
-   指定则置0,还有IPPROTO_TCP,IPPROTO_UDP等）
+   <sys/socket.h>，创建一个套接字。AF_INET(目前只支持ARPA Internet地址格式)。TCP(SOCK_STREAM)，UDP(SOCK_DGRAM)还有一些其他。协议（不想指定则置0,还有IPPROTO_TCP,IPPROTO_UDP等）
   2.setsockopt(listenfd,SOL_SOCKET,SO_REUSEADDR,&on,sizeof(on))函数 
     用于任意类型、任意状态套接口的设置选项值。套接字，定义的层次（目前仅支持SOL_SOCKET和IPPROTO_TCP层次），设置的选项，指向存放选项值的缓冲区，
     缓冲区长度
